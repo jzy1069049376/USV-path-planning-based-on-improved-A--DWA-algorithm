@@ -40,23 +40,15 @@ After downloading, open MATLAB and set the current working directory to the `A-D
 
 ### 2. Reproduce the Path Planning Experiment
 
-To reproduce the path planning simulation shown in Fig. 4, run:
+To reproduce the path planning simulation shown in Fig. 4 and Table 5, run:
 
 ```matlab
-Picture4_Table5
+Picture4_Table5(a)
 ```
 
 This script reads the river map image, generates the binary grid map, sets the start point, goal point and dynamic obstacle, and then compares the path planning results of different algorithms.
 
-### 3. Reproduce the Table 5 Data
 
-To obtain the performance data in Table 5, run the single-map statistical script:
-
-```matlab
-Table5_single_map_coast1111
-```
-
-The program will output the following performance indicators:
 
 ```text
 number of iterations
@@ -68,7 +60,7 @@ trajectory deviation
 
 The generated data can be used to construct Table 5 in the paper.
 
-### 4. Change the Experimental Map
+### 3. Change the Experimental Map
 
 The current Table 5 script uses `coast1111.jpg` as the experimental map. To test another map, only the map image path in the MATLAB code needs to be modified.
 
@@ -92,7 +84,7 @@ map_image_path = 'coast111_1.jpg';
 
 All other algorithm parameters remain unchanged. In this way, different map data can be obtained under the same experimental settings.
 
-### 5. Parameter Sensitivity Experiments
+### 4. Parameter Sensitivity Experiments
 
 To reproduce the parameter sensitivity experiment of the improved A* algorithm, run:
 

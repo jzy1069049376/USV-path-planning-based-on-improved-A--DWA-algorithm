@@ -1,8 +1,25 @@
-% ---------------------- 主程序：三算法对比（传统DWA / A*-DWA / 本文算法） ----------------------
+% ---------------------- 主程序：单地图表5数据统计（传统DWA / A*-DWA / 本文算法） ----------------------
 clear; clc; close all;
 
+%% ====================== 0. 单地图配置 ======================
+% 只需要改这一行地图路径即可。比如换成 coast2_2.jpg、coast3.jpg 时，只改这里。
+map_image_path = 'D:\植物大战僵尸\coast1111.jpg';
+[~, map_name, ~] = fileparts(map_image_path);
+
+% 结果输出文件夹
+output_dir = fullfile(pwd, 'Table5_result_single_map');
+if ~exist(output_dir, 'dir')
+    mkdir(output_dir);
+end
+
+% 是否显示动态仿真过程：
+% true  = 显示动画，适合检查轨迹；
+% false = 不显示动画，适合快速统计表5数据。
+draw_animation = true;
+
 %% ====================== 步骤1：读取并预处理图像 ======================
-img = imread('D:\植物大战僵尸\coast1111.jpg');   % 换成你的图像路径
+fprintf('当前统计地图：%s\n', map_image_path);
+img = imread(map_image_path);
 if size(img, 3) > 1
     img_gray = rgb2gray(img);
     img_bin = imbinarize(img_gray);
@@ -144,13 +161,17 @@ end
 path_trad = [start; goal];
 
 % 2) A*-DWA：标准A* + 轻度平滑（中等水平）
-[path_astar_raw, ~, ~] = AStar_8Dir(grid_map, cost_map_standard, start, goal);
+t_global_astar = tic;
+[path_astar_raw, astar_iter_count, ~] = AStar_8Dir(grid_map, cost_map_standard, start, goal);
+time_astar_global_ms = toc(t_global_astar) * 1000;
 path_astar_clean = clean_astar_path(path_astar_raw, 0.4);
 path_astar_simple = douglas_peucker(path_astar_clean, 1.0);
 path_astar = smooth_path_moving_avg(path_astar_simple, 2);
 
 % 3) 本文算法：风险A* + 强平滑（最好）
-[path_imp_raw, ~, ~] = AStar_8Dir(grid_map, cost_map_improved, start, goal);
+t_global_imp = tic;
+[path_imp_raw, imp_iter_count, ~] = AStar_8Dir(grid_map, cost_map_improved, start, goal);
+time_imp_global_ms = toc(t_global_imp) * 1000;
 path_imp_clean = clean_astar_path(path_imp_raw, 0.8);
 path_imp_simple = douglas_peucker(path_imp_clean, 2.2);
 path_improved = smooth_path_moving_avg(path_imp_simple, 4);
@@ -193,8 +214,8 @@ boat_imp.min_obs_dist = inf;
 boat_imp.name = '本文算法';
 
 %% ====================== 步骤11：仿真参数 ======================
-sim_speed = 0.15;
-max_steps = 1200;
+sim_speed = 0.001;      % 动画暂停时间，统计数据时建议小一些
+max_steps = 5000;       % 表5中部分河道迭代次数较大，不能设得太小
 
 safety_dist_trad = 1.0;
 safety_dist_astar = 1.3;
@@ -209,8 +230,17 @@ for k = 1:num_obstacles
     obs_positions(k,:) = obs_paths{k}(obs_idxs(k), :);
 end
 
+% 三种算法搜索时间累计，单位：ms
+% 传统DWA没有全局A*搜索，因此初始搜索时间为0；
+% A*-DWA和本文算法的搜索时间包含初始全局路径搜索时间 + 每步局部DWA决策时间。
+time_trad_ms  = 0;
+time_astar_ms = time_astar_global_ms;
+time_imp_ms   = time_imp_global_ms;
+
 %% ====================== 步骤12：主仿真循环 ======================
-figure('Name', '三算法对比：传统DWA / A*-DWA / 本文算法', 'Position', [150, 100, 900, 700]);
+if draw_animation
+    figure('Name', '三算法对比：传统DWA / A*-DWA / 本文算法', 'Position', [150, 100, 900, 700]);
+end
 
 for step_id = 1:max_steps
     % 判断是否都到终点
@@ -221,8 +251,10 @@ for step_id = 1:max_steps
     % ---------- 传统DWA ----------
     if ~boat_trad.done
         target_trad = goal;  % 直接朝终点，不走全局路径
+        t_local = tic;
         next_trad = DWA_traditional(boat_trad.pos, target_trad, obs_positions, grid_map, ...
             safety_dist_trad, boat_trad.last_dir, inflate_radius_trad);
+        time_trad_ms = time_trad_ms + toc(t_local) * 1000;
 
         boat_trad.path_len = boat_trad.path_len + norm(next_trad - boat_trad.pos);
         boat_trad.last_dir = next_trad - boat_trad.pos;
@@ -242,8 +274,10 @@ for step_id = 1:max_steps
     % ---------- A*-DWA ----------
     if ~boat_astar.done
         target_astar = get_smooth_target(boat_astar.pos, boat_astar.path, goal, 2);
+        t_local = tic;
         next_astar = DWA_astar(boat_astar.pos, target_astar, obs_positions, grid_map, ...
             safety_dist_astar, boat_astar.last_dir, inflate_radius_astardwa);
+        time_astar_ms = time_astar_ms + toc(t_local) * 1000;
 
         boat_astar.path_len = boat_astar.path_len + norm(next_astar - boat_astar.pos);
         boat_astar.last_dir = next_astar - boat_astar.pos;
@@ -263,8 +297,10 @@ for step_id = 1:max_steps
     % ---------- 本文算法 ----------
     if ~boat_imp.done
         target_imp = get_smooth_target(boat_imp.pos, boat_imp.path, goal, 4);
+        t_local = tic;
         next_imp = DWA_improved(boat_imp.pos, target_imp, obs_positions, grid_map, ...
             safety_dist_imp, boat_imp.last_dir, inflate_radius_improved);
+        time_imp_ms = time_imp_ms + toc(t_local) * 1000;
 
         boat_imp.path_len = boat_imp.path_len + norm(next_imp - boat_imp.pos);
         boat_imp.last_dir = next_imp - boat_imp.pos;
@@ -294,6 +330,7 @@ for step_id = 1:max_steps
         end
     end
 
+    if draw_animation
     % ---------- 绘图 ----------
     imshow(grid_map); hold on; grid on; axis equal;
 
@@ -382,22 +419,58 @@ for step_id = 1:max_steps
     axis on; hold off;
     drawnow;
     pause(sim_speed);
+    end
 end
 
-%% ====================== 步骤13：性能统计 ======================
-alg_names = {'传统DWA', 'A*-DWA', '本文算法'};
-reach_steps = [boat_trad.reach_step, boat_astar.reach_step, boat_imp.reach_step];
-path_lengths = [boat_trad.path_len, boat_astar.path_len, boat_imp.path_len];
-min_obs_dists = [boat_trad.min_obs_dist, boat_astar.min_obs_dist, boat_imp.min_obs_dist];
-
-fprintf('\n================== 三算法性能统计 ==================\n');
-for i = 1:3
-    fprintf('%s:\n', alg_names{i});
-    fprintf('  到达步数       = %.0f\n', reach_steps(i));
-    fprintf('  实际路径长度   = %.2f\n', path_lengths(i));
-    fprintf('  与障碍最小距离 = %.2f\n', min_obs_dists(i));
+%% ====================== 步骤13：性能统计 + 表5数据输出 ======================
+% 若某算法未在 max_steps 内到达终点，则迭代次数记为 max_steps，便于表格统计。
+if isnan(boat_trad.reach_step)
+    boat_trad.reach_step = max_steps;
 end
-fprintf('==================================================\n');
+if isnan(boat_astar.reach_step)
+    boat_astar.reach_step = max_steps;
+end
+if isnan(boat_imp.reach_step)
+    boat_imp.reach_step = max_steps;
+end
+
+% 表5指标：
+% 1) 迭代次数：到达终点所需步数；
+% 2) 搜索时间/ms：全局搜索时间 + 每步局部DWA决策时间，不包含绘图和pause时间；
+% 3) 路径长度/m：沿用原程序中累计的实际路径长度；
+% 4) 安全距离/m：无人艇与动态障碍物之间的最小距离；
+% 5) 轨迹偏移量：实际轨迹相对参考路径的平均偏移距离。
+alg_names = {'传统DWA算法'; 'A*-DWA算法'; '本文算法'};
+
+reach_steps = [boat_trad.reach_step; boat_astar.reach_step; boat_imp.reach_step];
+search_times = [time_trad_ms; time_astar_ms; time_imp_ms];
+path_lengths = [boat_trad.path_len; boat_astar.path_len; boat_imp.path_len];
+min_obs_dists = [boat_trad.min_obs_dist; boat_astar.min_obs_dist; boat_imp.min_obs_dist];
+
+% 轨迹偏移量计算：
+% 传统DWA没有全局参考路径，因此以起点—终点直线作为参考路径；
+% A*-DWA以标准A*平滑路径作为参考路径；
+% 本文算法以改进A*平滑路径作为参考路径。
+trajectory_offsets = [
+    mean_path_offset(boat_trad.history, [start; goal]);
+    mean_path_offset(boat_astar.history, path_astar);
+    mean_path_offset(boat_imp.history, path_improved)
+];
+
+map_col = repmat({map_name}, numel(alg_names), 1);
+
+Table5_single_map = table( ...
+    map_col, alg_names, reach_steps, search_times, path_lengths, min_obs_dists, trajectory_offsets, ...
+    'VariableNames', {'MapName','Algorithm','Iterations','SearchTime_ms','PathLength_m','SafetyDistance_m','TrajectoryOffset_m'} );
+
+fprintf('\n================== 表5：当前地图动态避障实验数据 ==================\n');
+disp(Table5_single_map);
+fprintf('==================================================================\n');
+
+% 保存为CSV，方便复制到论文表5中。
+csv_file = fullfile(output_dir, ['Table5_' map_name '.csv']);
+writetable(Table5_single_map, csv_file);
+fprintf('表5数据已保存至：%s\n', csv_file);
 
 %% ====================== 步骤14：柱状图对比 ======================
 figure('Name', '三算法性能对比', 'Position', [220, 120, 900, 650]);
@@ -834,4 +907,51 @@ function draw_obstacle_flow(obs_pos, flow_range, base_dir, grid_map)
                 'Color', [0.2,0.4,0.8], 'LineWidth', 1, 'MaxHeadSize', 0.6);
         end
     end
+end
+
+%% ---------------------- 表5轨迹偏移量计算函数 ----------------------
+function offset_mean = mean_path_offset(history_path, reference_path)
+    if isempty(history_path) || isempty(reference_path)
+        offset_mean = NaN;
+        return;
+    end
+
+    if size(reference_path,1) == 1
+        reference_path = [reference_path; reference_path];
+    end
+
+    offset_list = zeros(size(history_path,1), 1);
+
+    for i = 1:size(history_path,1)
+        p = history_path(i,:);
+        min_d = inf;
+
+        for j = 1:size(reference_path,1)-1
+            a = reference_path(j,:);
+            b = reference_path(j+1,:);
+            d = point_to_segment_dist(p, a, b);
+            if d < min_d
+                min_d = d;
+            end
+        end
+
+        offset_list(i) = min_d;
+    end
+
+    offset_mean = mean(offset_list, 'omitnan');
+end
+
+function d = point_to_segment_dist(p, a, b)
+    ab = b - a;
+    ap = p - a;
+
+    if norm(ab) < 1e-9
+        d = norm(p - a);
+        return;
+    end
+
+    t = dot(ap, ab) / dot(ab, ab);
+    t = max(0, min(1, t));
+    proj = a + t * ab;
+    d = norm(p - proj);
 end
